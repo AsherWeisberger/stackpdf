@@ -1,0 +1,5 @@
+proof-*
+fixtures/
+tmp/
+*.zip
+.DS_Store
