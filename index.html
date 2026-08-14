@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="Merge and split PDFs in the browser. Files never leave the tab.">
+  <meta name="description" content="Merge, split, and convert PDFs to Word in the browser. Files never leave the tab.">
   <meta name="theme-color" content="#EDE4D4">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -40,7 +40,7 @@
           <span class="seal"><span>This tab<br>only</span></span>
         </div>
         <h1 class="kinetic" aria-label="Stack your PDFs"><span class="k1">Stack</span> <span class="k2">your</span> <span class="k3">PDFs</span></h1>
-        <p class="lede">Merge, split, or pull a few pages.</p>
+        <p class="lede">Merge, split, or save as Word.</p>
         <button type="button" class="choose" id="chooseBtn">Add PDFs</button>
       </div>
 
@@ -91,11 +91,14 @@
       <div class="dock-actions">
         <button type="button" class="secondary" id="mergeBtn" disabled>Merge</button>
         <button type="button" class="primary" id="extractBtn" disabled>Extract</button>
+        <button type="button" class="tertiary" id="wordBtn" disabled>Word</button>
       </div>
     </footer>
   </div>
   <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple hidden>
   <script src="vendor/pdf-lib.min.js"></script>
+  <script src="vendor/pdfjs/pdf.min.js"></script>
   <script src="app.js"></script>
+  <script src="word.js"></script>
 </body>
 </html>

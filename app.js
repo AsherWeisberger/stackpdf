@@ -223,7 +223,9 @@ var MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 
 function classifyPdfError(err) {
   var msg = err && err.message ? String(err.message) : "";
-  if (/encrypt/i.test(msg)) return "This PDF is password-protected.";
+  var name = err && err.name ? String(err.name) : "";
+  if (/encrypt/i.test(msg) || /password/i.test(msg) || name === "PasswordException") return "This PDF is password-protected.";
+  if (/no text could be extracted/i.test(msg)) return msg;
   return "This PDF is damaged or unreadable.";
 }
 
@@ -293,6 +295,7 @@ function bootUi() {
     splitHint: document.getElementById("splitHint"),
     mergeBtn: document.getElementById("mergeBtn"),
     extractBtn: document.getElementById("extractBtn"),
+    wordBtn: document.getElementById("wordBtn"),
     everyBtn: document.getElementById("everyBtn"),
     rangeInput: document.getElementById("rangeInput"),
     fileInput: document.getElementById("fileInput"),
@@ -492,7 +495,8 @@ function bootUi() {
     var errCount = items.filter(function (it) { return it.status === "error"; }).length;
     if (!items.length) setHint(els.fileHint, "", false);
     else if (errCount) setHint(els.fileHint, errCount + (errCount === 1 ? " file" : " files") + " couldn’t be read.", true);
-    else setHint(els.fileHint, "This tab only.", false);
+    else setHint(els.fileHint, "Word file is built in this tab. Nothing is uploaded.", false);
+    if (els.fileHint) els.fileHint.classList.toggle("is-word", !!(items.length && !errCount));
 
     els.mergeBtn.disabled = busy || ok.length < 2;
     els.mergeBtn.textContent = ok.length >= 2 ? ("Merge " + ok.length) : "Merge";
@@ -518,6 +522,14 @@ function bootUi() {
     els.everyBtn.textContent = sel ? ("Every page · " + sel.pageCount) : "Every page";
     els.extractBtn.disabled = busy || !sel || !rangeOk;
     els.extractBtn.textContent = rangeOk ? ("Extract " + picked.length) : "Extract";
+    var wordOk = false;
+    if (sel) {
+      if (!els.rangeInput.value.trim()) wordOk = true;
+      else wordOk = rangeOk;
+    }
+    els.wordBtn.disabled = busy || !sel || !wordOk;
+    els.wordBtn.textContent = "Word";
+    els.wordBtn.title = !sel ? "Select a file to convert." : (wordOk ? "Save as Word · stays in this tab" : "Fix the page range to convert.");
 
     syncChips(sel, picked);
     renderGrid();
@@ -796,8 +808,10 @@ function bootUi() {
     showProgress(true, label, 0, 1);
     try { await fn(); }
     catch (err) {
-      var msg = (err && err.message) ? err.message : "Something failed.";
-      if (/encrypt/i.test(msg)) msg = "This PDF is password-protected.";
+      var msg = classifyPdfError(err);
+      if (msg === "This PDF is damaged or unreadable." && err && err.message && !/damaged|unreadable|InvalidPDF|MissingPDF/i.test(err.message)) {
+        msg = err.message;
+      }
       setHint(els.splitHint, msg, true);
       showToast(msg);
     }
@@ -811,6 +825,8 @@ function bootUi() {
     if (p.phase === "read") label = "Reading " + p.file;
     else if (p.phase === "merge") label = "Merging " + (p.file || "") + " · " + p.done + "/" + p.total + " pages";
     else if (p.phase === "split") label = "Splitting · " + p.done + "/" + p.total + " pages";
+    else if (p.phase === "word") label = "Word · " + p.done + "/" + p.total + " pages";
+    else if (p.phase === "docx") label = "Writing Word file";
     else if (p.phase === "save") label = "Writing PDF";
     showProgress(true, label, p.done, p.total || 1);
   }
@@ -833,6 +849,23 @@ function bootUi() {
     });
   });
 
+
+  els.wordBtn.addEventListener("click", function () {
+    var sel = selected();
+    if (!sel) return;
+    runBusy("Converting to Word", async function () {
+      var pages;
+      if (els.rangeInput.value.trim()) pages = parseRanges(els.rangeInput.value, sel.pageCount);
+      else {
+        pages = [];
+        for (var i = 1; i <= sel.pageCount; i++) pages.push(i);
+      }
+      if (typeof StackPDF.pdfToDocx !== "function") throw new Error("Word conversion failed to load.");
+      var bytes = await StackPDF.pdfToDocx(sel.bytes, pages, onProg);
+      var name = sel.name.replace(/\.pdf$/i, "") + ".docx";
+      downloadBytes(bytes, name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    });
+  });
   els.everyBtn.addEventListener("click", function () {
     var sel = selected();
     if (!sel) return;
@@ -938,10 +971,16 @@ function bootUi() {
   bindPress(els.chooseBtn);
   bindPress(els.mergeBtn);
   bindPress(els.extractBtn);
+  bindPress(els.wordBtn);
 
   if (typeof PDFLib === "undefined") {
     showToast("pdf-lib failed to load.");
     setHint(els.fileHint, "pdf-lib failed to load.", true);
+  }
+  if (typeof pdfjsLib === "undefined") {
+    showToast("pdf.js failed to load. Word conversion is unavailable.");
+  } else if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
   }
   render();
 }

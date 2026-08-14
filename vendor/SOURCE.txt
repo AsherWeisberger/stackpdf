@@ -1,3 +1,2 @@
 pdf-lib 1.17.1
-MIT, Andrew Dillon
-Pinned copy of the jsDelivr dist build.
+pdfjs-dist 3.11.174

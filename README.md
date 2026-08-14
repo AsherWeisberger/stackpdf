@@ -1,6 +1,6 @@
 # StackPDF
 
-Merge and split PDFs in the browser. Files never leave the tab.
+Merge, split, and convert PDFs to Word in the browser. Files never leave the tab.
 
 No account. No daily cap. No upload. Open `index.html` or host the folder on GitHub Pages.
 
@@ -10,7 +10,7 @@ StackPDF is an original tool and is not affiliated with Smallpdf, iLovePDF, or A
 
 Open `index.html` in a browser, or serve the folder with any static file server.
 
-pdf-lib 1.17.1 is pinned in `vendor` (jsDelivr copy). Fraunces and Manrope are self-hosted in `vendor/fonts`. PDF bytes are never fetched or posted anywhere.
+pdf-lib 1.17.1 and pdfjs-dist 3.11.174 are pinned in `vendor`. Fraunces and Manrope are self-hosted in `vendor/fonts`. PDF bytes are never fetched or posted anywhere.
 
 ## Use
 
@@ -18,6 +18,7 @@ pdf-lib 1.17.1 is pinned in `vendor` (jsDelivr copy). Fraunces and Manrope are s
 2. Reorder the stack with the handle (mouse or touch), or the arrows. Remove anything you do not want.
 3. **Merge** combines the stack in list order and downloads `stackpdf-merged.pdf`.
 4. Select a file to split it. Tap pages (they look like little sheets), or use All / Odd / Even / a range such as `1-3, 5, 8-10`, then **Extract**. **Every page** writes one PDF per page (zipped when there is more than one).
+5. **Word** builds a `.docx` in this tab from the selected file (or selected pages). Text-first, with a raster fallback for scanned pages — not a pixel-perfect layout replica.
 
 Password-protected, damaged, and oversized files are refused with a plain-language error. Page counts come from pdf-lib in the tab.
 
