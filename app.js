@@ -206,9 +206,32 @@ async function splitEveryPage(bytes, baseName, onProgress) {
   return { files: files, zip: n > 1 ? zipStore(files) : null };
 }
 
+function oddPages(n) {
+  var a = [];
+  for (var i = 1; i <= n; i += 2) a.push(i);
+  return a;
+}
+
+function evenPages(n) {
+  var a = [];
+  for (var i = 2; i <= n; i += 2) a.push(i);
+  return a;
+}
+
+var MAX_FILE_BYTES = 64 * 1024 * 1024;
+var MAX_TOTAL_BYTES = 200 * 1024 * 1024;
+
+function classifyPdfError(err) {
+  var msg = err && err.message ? String(err.message) : "";
+  if (/encrypt/i.test(msg)) return "This PDF is password-protected.";
+  return "This PDF is damaged or unreadable.";
+}
+
 var StackPDF = {
   parseRanges: parseRanges,
   compactRanges: compactRanges,
+  oddPages: oddPages,
+  evenPages: evenPages,
   mergePdfs: mergePdfs,
   extractPages: extractPages,
   splitEveryPage: splitEveryPage,
@@ -227,7 +250,30 @@ function bootUi() {
   var items = [];
   var selectedId = null;
   var busy = false;
-  var dragFrom = null;
+  var toastTimer = 0;
+  var sort = null;
+  var knownIds = {};
+  var lastGridId = null;
+  var leaving = {};
+
+  function prefersReduced() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+
+  function replayStage(el, cls) {
+    if (!el) return;
+    el.classList.remove(cls);
+    if (prefersReduced()) return;
+    void el.offsetWidth;
+    el.classList.add(cls);
+  }
+
+  var ICON = {
+    up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>',
+    down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M6 13l6 6 6-6"/></svg>',
+    x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-9" stroke="currentColor" fill="none"/></svg>'
+  };
 
   var els = {
     stage: document.getElementById("stage"),
@@ -242,7 +288,6 @@ function bootUi() {
     progressLabel: document.getElementById("progressLabel"),
     progressBar: document.getElementById("progressBar"),
     progressTrack: document.getElementById("progressTrack"),
-    fileList: document.getElementById("fileList"),
     fileHint: document.getElementById("fileHint"),
     mergeHint: document.getElementById("mergeHint"),
     splitHint: document.getElementById("splitHint"),
@@ -255,24 +300,46 @@ function bootUi() {
     chooseBtn: document.getElementById("chooseBtn"),
     addBtn: document.getElementById("addBtn"),
     allPagesBtn: document.getElementById("allPagesBtn"),
-    clearPagesBtn: document.getElementById("clearPagesBtn")
+    clearPagesBtn: document.getElementById("clearPagesBtn"),
+    oddPagesBtn: document.getElementById("oddPagesBtn"),
+    evenPagesBtn: document.getElementById("evenPagesBtn"),
+    toast: document.getElementById("toast"),
+    dock: document.getElementById("dock")
   };
 
   function okItems() { return items.filter(function (it) { return it.status === "ok"; }); }
   function selected() { return items.find(function (it) { return it.id === selectedId && it.status === "ok"; }) || null; }
 
   function setHint(el, text, err) {
-    el.textContent = text;
+    if (!el) return;
+    el.textContent = text || "";
     el.classList.toggle("is-err", !!err);
+  }
+
+  function showToast(text) {
+    if (!els.toast) return;
+    els.toast.hidden = !text;
+    els.toast.textContent = text || "";
+    clearTimeout(toastTimer);
+    if (text) {
+      toastTimer = setTimeout(function () {
+        els.toast.hidden = true;
+      }, 5200);
+    }
   }
 
   function showProgress(on, label, done, total) {
     els.progress.hidden = !on;
     if (!on) return;
     els.progressLabel.textContent = label || "Working";
-    var pct = total ? Math.round((done / total) * 100) : 0;
+    var pct;
+    if (!total || total < 1) pct = 8;
+    else if (done <= 0) pct = 6;
+    else if (done >= total) pct = 100;
+    else pct = Math.max(6, Math.min(96, Math.round((done / total) * 100)));
     els.progressBar.style.width = pct + "%";
     els.progressTrack.setAttribute("aria-valuenow", String(pct));
+    els.progressTrack.setAttribute("aria-label", label || "Working");
   }
 
   function downloadBytes(bytes, name, type) {
@@ -294,173 +361,249 @@ function bootUi() {
     catch (e) { return []; }
   }
 
+  function iconBtn(svg, title, cls, fn, disabled) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "icon-btn" + (cls ? " " + cls : "");
+    b.innerHTML = svg;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.disabled = !!disabled;
+    b.addEventListener("click", function (ev) { ev.stopPropagation(); fn(); });
+    return b;
+  }
+
   function render() {
+    if (sort) return;
     var ok = okItems();
     var totalPages = ok.reduce(function (s, it) { return s + it.pageCount; }, 0);
     var totalBytes = ok.reduce(function (s, it) { return s + it.size; }, 0);
-    els.topMeta.textContent = ok.length
-      ? (ok.length + (ok.length === 1 ? " file" : " files") + " · " + totalPages + " pp · " + formatBytes(totalBytes))
-      : "";
-
-    els.empty.hidden = items.length > 0;
-    els.work.hidden = items.length === 0;
-
-    els.fileList.replaceChildren();
-    items.forEach(function (it, idx) {
-      var li = document.createElement("li");
-      li.className = "file" + (it.id === selectedId ? " is-on" : "") + (it.status === "error" ? " is-error" : "");
-      li.draggable = true;
-      li.dataset.id = it.id;
-
-      var grip = document.createElement("span");
-      grip.className = "grip";
-      grip.title = "Drag to reorder";
-
-      var name = document.createElement("div");
-      name.className = "file-name";
-      name.textContent = it.name;
-      name.title = it.name;
-
-      var pages = document.createElement("div");
-      pages.className = "file-pages";
-      pages.textContent = it.status === "reading" ? "…" : (it.status === "error" ? "err" : it.pageCount + " pp");
-
-      var row = document.createElement("div");
-      row.className = "file-row";
-      var size = document.createElement("span");
-      size.className = "file-size";
-      size.textContent = it.status === "error" ? (it.error || "Unreadable") : formatBytes(it.size);
-
-      function icon(label, title, cls, fn, disabled) {
-        var b = document.createElement("button");
-        b.type = "button";
-        b.className = "icon-btn" + (cls ? " " + cls : "");
-        b.textContent = label;
-        b.title = title;
-        b.disabled = !!disabled;
-        b.addEventListener("click", function (ev) { ev.stopPropagation(); fn(); });
-        return b;
-      }
-      row.appendChild(size);
-      row.appendChild(icon("↑", "Move up", "", function () { move(idx, idx - 1); }, idx === 0));
-      row.appendChild(icon("↓", "Move down", "", function () { move(idx, idx + 1); }, idx === items.length - 1));
-      row.appendChild(icon("×", "Remove", "danger", function () { removeAt(idx); }));
-
-      li.appendChild(grip);
-      li.appendChild(name);
-      li.appendChild(pages);
-      li.appendChild(row);
-      li.addEventListener("click", function () { select(it.id); });
-      li.addEventListener("dragstart", function (ev) {
-        dragFrom = it.id;
-        li.classList.add("is-drag");
-        ev.dataTransfer.effectAllowed = "move";
-        try { ev.dataTransfer.setData("text/plain", it.id); } catch (e) {}
+    var hasFiles = items.length > 0;
+    var reduce = prefersReduced();
+    var firstRects = {};
+    if (!reduce) {
+      els.stack.querySelectorAll(".card").forEach(function (c) {
+        firstRects[c.dataset.id] = c.getBoundingClientRect();
       });
-      li.addEventListener("dragend", function () { dragFrom = null; li.classList.remove("is-drag"); });
-      li.addEventListener("dragover", function (ev) { ev.preventDefault(); ev.dataTransfer.dropEffect = "move"; });
-      li.addEventListener("drop", function (ev) {
-        ev.preventDefault();
-        var fromId = dragFrom || (ev.dataTransfer && ev.dataTransfer.getData("text/plain"));
-        if (!fromId || fromId === it.id) return;
-        var from = items.findIndex(function (x) { return x.id === fromId; });
-        var to = items.findIndex(function (x) { return x.id === it.id; });
-        if (from < 0 || to < 0) return;
-        var moved = items.splice(from, 1)[0];
-        items.splice(to, 0, moved);
-        render();
-      });
-      els.fileList.appendChild(li);
-    });
-
-    if (!items.length) setHint(els.fileHint, "Drop or add PDFs to start.", false);
-    else if (ok.length !== items.length) setHint(els.fileHint, "One or more files could not be read.", true);
-    else setHint(els.fileHint, "Drag to reorder. Click a file to split it.", false);
-
-    els.mergeBtn.disabled = busy || ok.length < 2;
-    if (ok.length < 2) setHint(els.mergeHint, "Add at least two PDFs to merge.", false);
-    else setHint(els.mergeHint, ok.length + " files · " + totalPages + " pages → stackpdf-merged.pdf", false);
-
-    var sel = selected();
-    els.everyBtn.disabled = busy || !sel;
-    var rangeOk = false;
-    if (!sel) {
-      setHint(els.splitHint, "Select a file, then pages or a range.", false);
-    } else {
-      try {
-        var r = parseRanges(els.rangeInput.value, sel.pageCount);
-        rangeOk = r.length > 0;
-        setHint(els.splitHint, "Extract " + r.length + " page" + (r.length === 1 ? "" : "s") + " from " + sel.name + ".", false);
-      } catch (e) {
-        setHint(els.splitHint, els.rangeInput.value.trim() ? e.message : ("Selected " + sel.name + " · " + sel.pageCount + " pages."), !!els.rangeInput.value.trim());
-      }
     }
-    els.extractBtn.disabled = busy || !sel || !rangeOk;
+
+    var showingWork = hasFiles && els.work.hidden;
+    var showingEmpty = !hasFiles && els.empty.hidden;
+    els.empty.hidden = hasFiles;
+    els.work.hidden = !hasFiles;
+    els.dock.hidden = !hasFiles;
+    if (showingWork) {
+      replayStage(els.work, "is-enter-stage");
+      replayStage(els.dock, "is-enter-stage");
+    }
+    if (showingEmpty) replayStage(els.empty, "is-enter-stage");
+
+    els.topMeta.textContent = ok.length
+      ? (ok.length + (ok.length === 1 ? " file" : " files") + " · " + totalPages + " pages")
+      : (items.length ? "Reading…" : "");
 
     els.stack.replaceChildren();
     items.forEach(function (it, idx) {
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "sheet" + (it.id === selectedId ? " is-on" : "");
-      var ord = document.createElement("span");
-      ord.className = "sheet-ord";
-      ord.textContent = String(idx + 1).padStart(2, "0");
-      var body = document.createElement("div");
-      var nm = document.createElement("div");
-      nm.className = "sheet-name";
-      nm.textContent = it.name;
-      var meta = document.createElement("div");
-      meta.className = "sheet-meta";
-      meta.textContent = it.status === "ok" ? (it.pageCount + " pages · " + formatBytes(it.size)) : (it.status === "reading" ? "Reading…" : (it.error || "Unreadable"));
-      body.appendChild(nm);
-      body.appendChild(meta);
-      var ticks = document.createElement("div");
-      ticks.className = "ticks";
-      if (it.status === "ok") {
-        var show = Math.min(it.pageCount, 24);
-        for (var t = 0; t < show; t++) {
-          var tick = document.createElement("span");
-          tick.className = "tick";
-          ticks.appendChild(tick);
-        }
-        if (it.pageCount > 24) {
-          var more = document.createElement("span");
-          more.className = "tick is-more";
-          more.textContent = "+" + (it.pageCount - 24);
-          ticks.appendChild(more);
+      var card = document.createElement("article");
+      var isNew = !knownIds[it.id];
+      knownIds[it.id] = true;
+      card.className = "card" + (it.id === selectedId ? " is-on" : "") + (it.status === "error" ? " is-error" : "") + (isNew && !reduce ? " is-enter" : "");
+      card.dataset.id = it.id;
+      if (isNew && !reduce) {
+        card.addEventListener("animationend", function () { card.classList.remove("is-enter"); }, { once: true });
+      }
+      card.setAttribute("role", "listitem");
+      card.setAttribute("aria-selected", it.id === selectedId ? "true" : "false");
+      card.tabIndex = 0;
+
+      var handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "handle";
+      handle.dataset.handle = "1";
+      handle.setAttribute("aria-label", "Reorder " + it.name);
+      handle.innerHTML = "<span></span><span></span><span></span>";
+
+      var preview = document.createElement("div");
+      preview.className = "card-preview";
+      preview.setAttribute("aria-hidden", "true");
+      preview.innerHTML = "<i></i><i></i>";
+
+      var copy = document.createElement("div");
+      copy.className = "card-copy";
+      var h = document.createElement("h3");
+      h.textContent = it.name;
+      h.title = it.name;
+      var meta = document.createElement("p");
+      if (it.status === "reading") meta.textContent = "Reading…";
+      else if (it.status === "error") meta.textContent = it.error || "Unreadable";
+      else {
+        meta.textContent = it.pageCount + (it.pageCount === 1 ? " page" : " pages") + " · " + formatBytes(it.size);
+        if (it.id === selectedId) {
+          var tag = document.createElement("span");
+          tag.className = "sel-tag";
+          tag.textContent = "Selected";
+          meta.appendChild(tag);
         }
       }
-      btn.appendChild(ord);
-      btn.appendChild(body);
-      btn.appendChild(ticks);
-      btn.addEventListener("click", function () { select(it.id); });
-      els.stack.appendChild(btn);
+      copy.appendChild(h);
+      copy.appendChild(meta);
+
+      var actions = document.createElement("div");
+      actions.className = "card-actions";
+      actions.appendChild(iconBtn(ICON.up, "Move up", "", function () { move(idx, idx - 1); }, idx === 0 || busy));
+      actions.appendChild(iconBtn(ICON.down, "Move down", "", function () { move(idx, idx + 1); }, idx === items.length - 1 || busy));
+      actions.appendChild(iconBtn(ICON.x, "Remove " + it.name, "danger", function () { removeAt(idx); }, busy));
+
+      card.appendChild(handle);
+      card.appendChild(preview);
+      card.appendChild(copy);
+      card.appendChild(actions);
+      card.addEventListener("click", function (ev) {
+        if (ev.target.closest(".handle") || ev.target.closest(".card-actions")) return;
+        select(it.id);
+      });
+      card.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          select(it.id);
+        }
+      });
+      els.stack.appendChild(card);
     });
 
+    if (!reduce) {
+      els.stack.querySelectorAll(".card").forEach(function (c) {
+        if (c.classList.contains("is-enter")) return;
+        var f = firstRects[c.dataset.id];
+        if (!f) return;
+        var last = c.getBoundingClientRect();
+        var dy = f.top - last.top;
+        if (Math.abs(dy) < 0.5) return;
+        c.animate(
+          [{ transform: "translateY(" + dy + "px)" }, { transform: "translateY(0)" }],
+          { duration: 480, easing: "cubic-bezier(0.22, 1.2, 0.36, 1)" }
+        );
+      });
+    }
+    var live = {};
+    items.forEach(function (it) { live[it.id] = true; });
+    Object.keys(knownIds).forEach(function (id) { if (!live[id]) delete knownIds[id]; });
+
+    var errCount = items.filter(function (it) { return it.status === "error"; }).length;
+    if (!items.length) setHint(els.fileHint, "", false);
+    else if (errCount) setHint(els.fileHint, errCount + (errCount === 1 ? " file" : " files") + " couldn’t be read.", true);
+    else setHint(els.fileHint, "This tab only.", false);
+
+    els.mergeBtn.disabled = busy || ok.length < 2;
+    els.mergeBtn.textContent = ok.length >= 2 ? ("Merge " + ok.length) : "Merge";
+    els.mergeBtn.title = ok.length < 2 ? "Add at least two PDFs to merge." : ("Combine " + ok.length + " files · " + totalPages + " pages");
+    setHint(els.mergeHint, ok.length >= 2 ? (ok.length + " files · " + totalPages + " pages → stackpdf-merged.pdf") : "", false);
+
+    var sel = selected();
+    var picked = [];
+    var rangeOk = false;
+    if (sel) {
+      try {
+        picked = parseRanges(els.rangeInput.value, sel.pageCount);
+        rangeOk = picked.length > 0;
+        setHint(els.splitHint, "Extract " + picked.length + (picked.length === 1 ? " page" : " pages") + " from " + sel.name + ".", false);
+      } catch (e) {
+        setHint(els.splitHint, els.rangeInput.value.trim() ? e.message : (sel.pageCount + " pages in " + sel.name + "."), !!els.rangeInput.value.trim());
+      }
+    } else {
+      setHint(els.splitHint, "Select a file to extract pages.", false);
+    }
+
+    els.everyBtn.disabled = busy || !sel;
+    els.everyBtn.textContent = sel ? ("Every page · " + sel.pageCount) : "Every page";
+    els.extractBtn.disabled = busy || !sel || !rangeOk;
+    els.extractBtn.textContent = rangeOk ? ("Extract " + picked.length) : "Extract";
+
+    syncChips(sel, picked);
     renderGrid();
+  }
+
+  function syncChips(sel, picked) {
+    var allOn = false, oddOn = false, evenOn = false;
+    if (sel && picked && picked.length) {
+      var all = [];
+      for (var i = 1; i <= sel.pageCount; i++) all.push(i);
+      allOn = compactRanges(picked) === compactRanges(all);
+      oddOn = compactRanges(picked) === compactRanges(oddPages(sel.pageCount));
+      evenOn = compactRanges(picked) === compactRanges(evenPages(sel.pageCount));
+    }
+    els.allPagesBtn.classList.toggle("is-on", allOn);
+    els.oddPagesBtn.classList.toggle("is-on", oddOn);
+    els.evenPagesBtn.classList.toggle("is-on", evenOn);
+    els.allPagesBtn.setAttribute("aria-pressed", allOn ? "true" : "false");
+    els.oddPagesBtn.setAttribute("aria-pressed", oddOn ? "true" : "false");
+    els.evenPagesBtn.setAttribute("aria-pressed", evenOn ? "true" : "false");
   }
 
   function renderGrid() {
     var sel = selected();
     els.pagesPanel.hidden = !sel;
     els.pageGrid.replaceChildren();
-    if (!sel) return;
-    els.pagesTitle.textContent = "Pages";
+    if (!sel) { lastGridId = null; return; }
     var picked = [];
     try { picked = parseRanges(els.rangeInput.value, sel.pageCount); } catch (e) { picked = []; }
     var set = {};
     picked.forEach(function (n) { set[n] = true; });
-    els.pagesSub.textContent = sel.name + " · " + (picked.length ? (picked.length + " selected") : "click to select");
-    for (var n = 1; n <= sel.pageCount; n++) {
-      var b = document.createElement("button");
-      b.type = "button";
-      b.className = "pg" + (set[n] ? " is-on" : "");
-      b.textContent = String(n);
-      b.addEventListener("click", (function (page) {
-        return function () { togglePage(page); };
-      })(n));
-      els.pageGrid.appendChild(b);
+    els.pagesTitle.textContent = "Pages";
+    els.pagesSub.textContent = picked.length
+      ? (picked.length + " of " + sel.pageCount + " selected")
+      : ("Tap pages in " + sel.name);
+    var fresh = sel.id !== lastGridId;
+    lastGridId = sel.id;
+    if (fresh) {
+      els.pagesPanel.classList.remove("is-fresh");
+      if (!prefersReduced()) {
+        void els.pagesPanel.offsetWidth;
+        els.pagesPanel.classList.add("is-fresh");
+      }
+    } else {
+      els.pagesPanel.classList.remove("is-fresh");
     }
+    var maxShow = 80;
+    var n, show = Math.min(sel.pageCount, maxShow);
+    for (n = 1; n <= show; n++) {
+      var leaf = leafBtn(n, !!set[n], sel.pageCount);
+      if (fresh) leaf.style.setProperty("--i", String(Math.min(n - 1, 24)));
+      els.pageGrid.appendChild(leaf);
+    }
+    if (sel.pageCount > maxShow) {
+      els.pagesSub.textContent = (picked.length ? (picked.length + " selected") : "Select pages") + " · first " + maxShow + " shown, use range for the rest";
+    }
+  }
+
+  function leafBtn(n, on, total) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "leaf" + (on ? " is-on" : "");
+    b.setAttribute("role", "option");
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.setAttribute("aria-label", "Page " + n + " of " + total + (on ? ", selected" : ""));
+    var sheet = document.createElement("span");
+    sheet.className = "leaf-sheet";
+    var band = document.createElement("span");
+    band.className = "leaf-band";
+    var rules = document.createElement("span");
+    rules.className = "leaf-rules";
+    rules.setAttribute("aria-hidden", "true");
+    rules.innerHTML = "<i></i><i></i><i></i><i></i>";
+    var check = document.createElement("span");
+    check.className = "leaf-check";
+    check.innerHTML = ICON.check;
+    sheet.appendChild(band);
+    sheet.appendChild(rules);
+    sheet.appendChild(check);
+    var cap = document.createElement("span");
+    cap.className = "leaf-cap";
+    cap.textContent = String(n);
+    b.appendChild(sheet);
+    b.appendChild(cap);
+    b.addEventListener("click", function () { togglePage(n); });
+    return b;
   }
 
   function togglePage(n) {
@@ -476,10 +619,16 @@ function bootUi() {
     render();
   }
 
+  function setPages(pages) {
+    els.rangeInput.value = compactRanges(pages);
+    render();
+  }
+
   function select(id) {
+    var switching = selectedId !== id;
     selectedId = id;
     var sel = selected();
-    if (sel) {
+    if (sel && switching) {
       try { parseRanges(els.rangeInput.value, sel.pageCount); }
       catch (e) { els.rangeInput.value = "1-" + sel.pageCount; }
       if (!els.rangeInput.value.trim()) els.rangeInput.value = "1-" + sel.pageCount;
@@ -494,8 +643,12 @@ function bootUi() {
     render();
   }
 
-  function removeAt(idx) {
-    var gone = items.splice(idx, 1)[0];
+  function finishRemove(id) {
+    var i = items.findIndex(function (it) { return it.id === id; });
+    if (i < 0) return;
+    var gone = items.splice(i, 1)[0];
+    delete leaving[id];
+    delete knownIds[id];
     if (gone && gone.id === selectedId) {
       var next = items.find(function (it) { return it.status === "ok"; });
       selectedId = next ? next.id : null;
@@ -503,35 +656,129 @@ function bootUi() {
     render();
   }
 
+  function removeAt(idx) {
+    var gone = items[idx];
+    if (!gone) return;
+    if (leaving[gone.id]) return;
+    var card = els.stack.querySelector('.card[data-id="' + gone.id + '"]');
+    if (card && !prefersReduced() && !sort) {
+      leaving[gone.id] = true;
+      card.classList.add("is-leave");
+      card.style.pointerEvents = "none";
+      var done = false;
+      function finish() {
+        if (done) return;
+        done = true;
+        finishRemove(gone.id);
+      }
+      card.addEventListener("animationend", finish, { once: true });
+      setTimeout(finish, 340);
+      return;
+    }
+    finishRemove(gone.id);
+  }
+
+  function indexFromPoint(clientY) {
+    var cards = els.stack.querySelectorAll(".card");
+    var i, rect, best = cards.length;
+    for (i = 0; i < cards.length; i++) {
+      rect = cards[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) { best = i; break; }
+    }
+    return Math.max(0, Math.min(items.length - 1, best === cards.length ? items.length - 1 : best));
+  }
+
+  function onSortDown(ev) {
+    if (busy) return;
+    var handle = ev.target.closest("[data-handle]");
+    if (!handle) return;
+    var card = handle.closest("[data-id]");
+    if (!card) return;
+    var id = card.dataset.id;
+    var from = items.findIndex(function (x) { return x.id === id; });
+    if (from < 0) return;
+    ev.preventDefault();
+    try { handle.setPointerCapture(ev.pointerId); } catch (e) {}
+    card.classList.add("is-lift");
+    sort = { id: id, from: from, pointerId: ev.pointerId, startY: ev.clientY };
+  }
+
+  function onSortMove(ev) {
+    if (!sort || ev.pointerId !== sort.pointerId) return;
+    ev.preventDefault();
+    var to = indexFromPoint(ev.clientY);
+    if (to === sort.from) return;
+    var moved = items.splice(sort.from, 1)[0];
+    items.splice(to, 0, moved);
+    sort.from = to;
+    var cards = Array.prototype.slice.call(els.stack.querySelectorAll(".card"));
+    var orderIds = items.map(function (it) { return it.id; });
+    cards.sort(function (a, b) {
+      return orderIds.indexOf(a.dataset.id) - orderIds.indexOf(b.dataset.id);
+    });
+    cards.forEach(function (c) { els.stack.appendChild(c); });
+  }
+
+  function onSortUp(ev) {
+    if (!sort || ev.pointerId !== sort.pointerId) return;
+    var card = els.stack.querySelector('.card[data-id="' + sort.id + '"]');
+    if (card) card.classList.remove("is-lift");
+    sort = null;
+    render();
+  }
+
   async function addFiles(fileList) {
-    var files = Array.prototype.slice.call(fileList || []).filter(isPdf);
+    var incoming = Array.prototype.slice.call(fileList || []);
+    var files = incoming.filter(isPdf);
+    var skipped = incoming.length - files.length;
     if (!files.length) {
+      showToast("Only PDF files are accepted.");
       setHint(els.fileHint, "Only PDF files are accepted.", true);
       return;
     }
+    if (skipped) showToast("Skipped " + skipped + (skipped === 1 ? " file that isn’t a PDF." : " files that aren’t PDFs."));
     if (typeof PDFLib === "undefined") {
-      setHint(els.fileHint, "pdf-lib failed to load.", true);
+      showToast("pdf-lib failed to load.");
       return;
     }
+    var existing = items.reduce(function (s, it) { return s + (it.size || 0); }, 0);
     for (var i = 0; i < files.length; i++) {
       var file = files[i];
       var it = { id: uid(), name: file.name, size: file.size, pageCount: 0, bytes: null, status: "reading", error: "" };
+      if (file.size > MAX_FILE_BYTES) {
+        it.status = "error";
+        it.error = "Too large (" + formatBytes(file.size) + "). Max " + formatBytes(MAX_FILE_BYTES) + " per file.";
+        items.push(it);
+        render();
+        continue;
+      }
+      if (existing + file.size > MAX_TOTAL_BYTES) {
+        it.status = "error";
+        it.error = "Would exceed the " + formatBytes(MAX_TOTAL_BYTES) + " tab limit.";
+        items.push(it);
+        render();
+        continue;
+      }
       items.push(it);
       if (!selectedId) selectedId = it.id;
       render();
       try {
         var buf = await file.arrayBuffer();
         var bytes = new Uint8Array(buf);
-        var doc = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+        var doc = await PDFLib.PDFDocument.load(bytes, { ignoreEncryption: false, updateMetadata: false });
+        var n = doc.getPageCount();
+        if (!n) throw new Error("This PDF has no pages.");
         it.bytes = bytes;
-        it.pageCount = doc.getPageCount();
+        it.pageCount = n;
         it.status = "ok";
-        if (it.id === selectedId && !els.rangeInput.value.trim() && it.pageCount) {
-          els.rangeInput.value = "1-" + it.pageCount;
+        existing += file.size;
+        if (it.id === selectedId && !els.rangeInput.value.trim() && n) {
+          els.rangeInput.value = "1-" + n;
         }
       } catch (err) {
         it.status = "error";
-        it.error = "Could not read this PDF";
+        it.error = classifyPdfError(err);
+        if (/no pages/i.test(err && err.message ? err.message : "")) it.error = "This PDF has no pages.";
         if (selectedId === it.id) {
           var nxt = items.find(function (x) { return x.status === "ok"; });
           selectedId = nxt ? nxt.id : null;
@@ -549,7 +796,10 @@ function bootUi() {
     showProgress(true, label, 0, 1);
     try { await fn(); }
     catch (err) {
-      setHint(els.splitHint, (err && err.message) ? err.message : "Something failed.", true);
+      var msg = (err && err.message) ? err.message : "Something failed.";
+      if (/encrypt/i.test(msg)) msg = "This PDF is password-protected.";
+      setHint(els.splitHint, msg, true);
+      showToast(msg);
     }
     busy = false;
     showProgress(false);
@@ -559,8 +809,8 @@ function bootUi() {
   function onProg(p) {
     var label = "Working";
     if (p.phase === "read") label = "Reading " + p.file;
-    else if (p.phase === "merge") label = "Merging " + p.file + " · " + p.done + "/" + p.total;
-    else if (p.phase === "split") label = "Splitting · " + p.done + "/" + p.total;
+    else if (p.phase === "merge") label = "Merging " + (p.file || "") + " · " + p.done + "/" + p.total + " pages";
+    else if (p.phase === "split") label = "Splitting · " + p.done + "/" + p.total + " pages";
     else if (p.phase === "save") label = "Writing PDF";
     showProgress(true, label, p.done, p.total || 1);
   }
@@ -578,7 +828,8 @@ function bootUi() {
     runBusy("Extracting", async function () {
       var pages = parseRanges(els.rangeInput.value, sel.pageCount);
       var bytes = await extractPages(sel.bytes, pages, onProg);
-      downloadBytes(bytes, "stackpdf-extract.pdf", "application/pdf");
+      var name = sel.name.replace(/\.pdf$/i, "") + "-extract.pdf";
+      downloadBytes(bytes, name, "application/pdf");
     });
   });
 
@@ -590,7 +841,7 @@ function bootUi() {
       if (result.files.length === 1) {
         downloadBytes(result.files[0].data, result.files[0].name, "application/pdf");
       } else {
-        downloadBytes(result.zip, "stackpdf-pages.zip", "application/zip");
+        downloadBytes(result.zip, sel.name.replace(/\.pdf$/i, "") + "-pages.zip", "application/zip");
       }
     });
   });
@@ -606,18 +857,33 @@ function bootUi() {
     els.rangeInput.value = "";
     render();
   });
+  els.oddPagesBtn.addEventListener("click", function () {
+    var sel = selected();
+    if (!sel) return;
+    setPages(oddPages(sel.pageCount));
+  });
+  els.evenPagesBtn.addEventListener("click", function () {
+    var sel = selected();
+    if (!sel) return;
+    setPages(evenPages(sel.pageCount));
+  });
 
   function pick() { els.fileInput.click(); }
   els.chooseBtn.addEventListener("click", function (ev) { ev.stopPropagation(); pick(); });
   els.addBtn.addEventListener("click", pick);
   els.empty.addEventListener("click", function (ev) {
-    if (ev.target === els.chooseBtn) return;
+    if (ev.target.closest("button")) return;
     pick();
   });
   els.fileInput.addEventListener("change", function () {
     addFiles(els.fileInput.files);
     els.fileInput.value = "";
   });
+
+  els.stack.addEventListener("pointerdown", onSortDown);
+  els.stack.addEventListener("pointermove", onSortMove);
+  els.stack.addEventListener("pointerup", onSortUp);
+  els.stack.addEventListener("pointercancel", onSortUp);
 
   ["dragenter", "dragover"].forEach(function (type) {
     els.stage.addEventListener(type, function (ev) {
@@ -630,7 +896,7 @@ function bootUi() {
     els.stage.addEventListener(type, function (ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      if (type === "dragleave" && ev.target !== els.stage) return;
+      if (type === "dragleave" && ev.target !== els.stage && !els.stage.contains(ev.relatedTarget)) return;
       els.stage.classList.remove("is-drag");
     });
   });
@@ -649,9 +915,32 @@ function bootUi() {
       var idx = items.findIndex(function (it) { return it.id === selectedId; });
       if (idx >= 0) { ev.preventDefault(); removeAt(idx); }
     }
+    if (ev.key === "ArrowUp" && selectedId && (ev.metaKey || ev.altKey)) {
+      var i1 = items.findIndex(function (it) { return it.id === selectedId; });
+      if (i1 > 0) { ev.preventDefault(); move(i1, i1 - 1); }
+    }
+    if (ev.key === "ArrowDown" && selectedId && (ev.metaKey || ev.altKey)) {
+      var i2 = items.findIndex(function (it) { return it.id === selectedId; });
+      if (i2 >= 0 && i2 < items.length - 1) { ev.preventDefault(); move(i2, i2 + 1); }
+    }
   });
 
+  function bindPress(btn) {
+    if (!btn) return;
+    btn.addEventListener("pointerdown", function () {
+      if (btn.disabled) return;
+      btn.classList.add("is-press");
+    });
+    ["pointerup", "pointercancel", "pointerleave", "blur"].forEach(function (type) {
+      btn.addEventListener(type, function () { btn.classList.remove("is-press"); });
+    });
+  }
+  bindPress(els.chooseBtn);
+  bindPress(els.mergeBtn);
+  bindPress(els.extractBtn);
+
   if (typeof PDFLib === "undefined") {
+    showToast("pdf-lib failed to load.");
     setHint(els.fileHint, "pdf-lib failed to load.", true);
   }
   render();

@@ -1,0 +1,2 @@
+Fraunces and Manrope (SIL Open Font License 1.1).
+Latin woff2 subset, copied from fonts.gstatic.com for offline/privacy.

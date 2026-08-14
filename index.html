@@ -2,83 +2,99 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Merge and split PDFs in the browser. Files never leave the tab.">
+  <meta name="theme-color" content="#EDE4D4">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>StackPDF</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..800&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='5' y='4' width='16' height='20' rx='2' fill='none' stroke='%233DB8A8' stroke-width='2' opacity='.45'/%3E%3Crect x='11' y='8' width='16' height='20' rx='2' fill='%230c0e10' stroke='%233DB8A8' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='5' y='8' width='14' height='18' rx='2' fill='%23F7EFE3' stroke='%231C1612' stroke-opacity='.2'/%3E%3Crect x='9' y='5' width='14' height='18' rx='2' fill='%23F3E6D0' stroke='%231C1612' stroke-opacity='.2'/%3E%3Crect x='13' y='6' width='14' height='18' rx='2' fill='%23E24B2A'/%3E%3C/svg%3E">
 </head>
 <body>
   <div class="app">
-    <header class="top">
+    <header class="mast">
       <div class="brand">
-        <span class="mark" aria-hidden="true"></span>
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
         <span class="name">StackPDF</span>
       </div>
-      <p class="top-meta" id="topMeta"></p>
+      <p class="privacy-chip" title="PDFs are read in this tab. Nothing is uploaded.">
+        <span class="lock" aria-hidden="true"></span>
+        <span>Stays in this tab</span>
+      </p>
     </header>
-    <div class="main">
-      <section class="stage" id="stage" tabindex="0">
-        <div class="empty" id="empty">
-          <p>Drop PDFs</p>
-          <button type="button" class="choose" id="chooseBtn">Choose files</button>
-          <span class="hint">multiple · pdf</span>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <main class="stage" id="stage" tabindex="-1" aria-label="PDF drop zone">
+      <div class="empty is-enter-stage" id="empty">
+        <div class="folio" aria-hidden="true">
+          <i class="s1"><b></b><b></b><b></b></i>
+          <i class="s2"><b></b><b></b></i>
+          <i class="s3">
+            <em class="rule"></em>
+            <em class="rule"></em>
+            <em class="rule"></em>
+          </i>
+          <span class="seal"><span>This tab<br>only</span></span>
         </div>
-        <div class="work" id="work" hidden>
-          <div class="stack" id="stack"></div>
-          <div class="pages-panel" id="pagesPanel" hidden>
-            <div class="pages-head">
-              <div>
-                <h2 id="pagesTitle">Pages</h2>
-                <p class="pages-sub" id="pagesSub"></p>
-              </div>
-              <div class="pages-tools">
-                <button type="button" class="text-btn" id="allPagesBtn">All</button>
-                <button type="button" class="text-btn" id="clearPagesBtn">Clear</button>
-              </div>
+        <h1 class="kinetic" aria-label="Stack your PDFs"><span class="k1">Stack</span> <span class="k2">your</span> <span class="k3">PDFs</span></h1>
+        <p class="lede">Merge, split, or pull a few pages.</p>
+        <button type="button" class="choose" id="chooseBtn">Add PDFs</button>
+      </div>
+
+      <div class="work" id="work" hidden>
+        <div class="work-head">
+          <p class="count" id="topMeta"></p>
+          <button type="button" class="ghost" id="addBtn">Add</button>
+        </div>
+        <div class="stack" id="stack" role="list" aria-label="PDF stack"></div>
+        <section class="pages-panel" id="pagesPanel" hidden>
+          <div class="pages-head">
+            <div>
+              <h2 id="pagesTitle">Pages</h2>
+              <p class="pages-sub" id="pagesSub"></p>
             </div>
-            <div class="page-grid" id="pageGrid"></div>
+            <div class="chips" role="group" aria-label="Quick ranges">
+              <button type="button" class="chip" id="allPagesBtn">All</button>
+              <button type="button" class="chip" id="oddPagesBtn">Odd</button>
+              <button type="button" class="chip" id="evenPagesBtn">Even</button>
+              <button type="button" class="chip is-quiet" id="clearPagesBtn">Clear</button>
+            </div>
           </div>
-        </div>
-        <div class="progress" id="progress" hidden>
+          <div class="page-grid" id="pageGrid" role="listbox" aria-label="Pages" aria-multiselectable="true"></div>
+          <div class="range-row">
+            <label class="field">
+              <span>Range</span>
+              <input type="text" id="rangeInput" placeholder="1–3, 5, 8–10" spellcheck="false" autocomplete="off" aria-describedby="splitHint">
+            </label>
+            <button type="button" class="text-btn" id="everyBtn" disabled>Every page</button>
+          </div>
+          <p class="quiet" id="splitHint"></p>
+        </section>
+      </div>
+
+      <div class="progress" id="progress" hidden>
+        <div class="progress-card">
           <p class="progress-label" id="progressLabel">Working</p>
           <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressTrack">
             <i id="progressBar"></i>
           </div>
         </div>
-      </section>
-      <aside class="rail">
-        <section class="block">
-          <div class="block-head">
-            <h2>Files</h2>
-            <button type="button" class="ghost" id="addBtn">Add</button>
-          </div>
-          <ul class="file-list" id="fileList"></ul>
-          <p class="quiet" id="fileHint">Drop or add PDFs to start.</p>
-        </section>
-        <section class="block">
-          <h2>Merge</h2>
-          <p class="quiet" id="mergeHint">Combine in list order into one PDF.</p>
-          <button type="button" class="primary" id="mergeBtn" disabled>Merge &amp; download</button>
-        </section>
-        <section class="block">
-          <h2>Split</h2>
-          <p class="quiet" id="splitHint">Select a file, then pages or a range.</p>
-          <label class="field">
-            <span>Range</span>
-            <input type="text" id="rangeInput" placeholder="1-3, 5, 8-10" spellcheck="false" autocomplete="off">
-          </label>
-          <div class="actions">
-            <button type="button" class="primary" id="extractBtn" disabled>Extract range</button>
-            <button type="button" class="secondary" id="everyBtn" disabled>Every page</button>
-          </div>
-        </section>
-        <p class="privacy">Files never leave this tab. No uploads, no analytics.</p>
-      </aside>
-    </div>
+      </div>
+    </main>
+
+    <footer class="dock" id="dock" hidden>
+      <p class="dock-note" id="fileHint"></p>
+      <p class="dock-note" id="mergeHint" hidden></p>
+      <div class="dock-actions">
+        <button type="button" class="secondary" id="mergeBtn" disabled>Merge</button>
+        <button type="button" class="primary" id="extractBtn" disabled>Extract</button>
+      </div>
+    </footer>
   </div>
   <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple hidden>
   <script src="vendor/pdf-lib.min.js"></script>
