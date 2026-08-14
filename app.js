@@ -193,7 +193,7 @@ async function splitEveryPage(bytes, baseName, onProgress) {
   var stem = String(baseName || "page").replace(/\.pdf$/i, "");
   for (var i = 0; i < n; i++) {
     var out = await PDFDocument.create();
-    var copied = await out.copyPages(src, [i]);
+    var copied = await out.copyPages(src, src.getPageIndices().slice(i, i + 1));
     out.addPage(copied[0]);
     var data = await out.save();
     files.push({
@@ -918,27 +918,37 @@ function bootUi() {
   els.stack.addEventListener("pointerup", onSortUp);
   els.stack.addEventListener("pointercancel", onSortUp);
 
-  ["dragenter", "dragover"].forEach(function (type) {
-    els.stage.addEventListener(type, function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      els.stage.classList.add("is-drag");
-    });
+  var dragDepth = 0;
+  function isFileDrag(ev) {
+    var dt = ev.dataTransfer;
+    if (!dt || !dt.types) return true;
+    return Array.prototype.indexOf.call(dt.types, "Files") >= 0;
+  }
+  document.addEventListener("dragenter", function (ev) {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    dragDepth += 1;
+    els.stage.classList.add("is-drag");
   });
-  ["dragleave", "drop"].forEach(function (type) {
-    els.stage.addEventListener(type, function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (type === "dragleave" && ev.target !== els.stage && !els.stage.contains(ev.relatedTarget)) return;
-      els.stage.classList.remove("is-drag");
-    });
+  document.addEventListener("dragover", function (ev) {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "copy";
+    els.stage.classList.add("is-drag");
   });
-  els.stage.addEventListener("drop", function (ev) {
+  document.addEventListener("dragleave", function (ev) {
+    if (!isFileDrag(ev)) return;
+    ev.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) els.stage.classList.remove("is-drag");
+  });
+  document.addEventListener("drop", function (ev) {
+    ev.preventDefault();
+    dragDepth = 0;
+    els.stage.classList.remove("is-drag");
     var dt = ev.dataTransfer;
     if (dt && dt.files && dt.files.length) addFiles(dt.files);
   });
-  document.addEventListener("dragover", function (ev) { ev.preventDefault(); });
-  document.addEventListener("drop", function (ev) { ev.preventDefault(); });
 
   document.addEventListener("keydown", function (ev) {
     if (busy) return;
@@ -980,7 +990,7 @@ function bootUi() {
   if (typeof pdfjsLib === "undefined") {
     showToast("pdf.js failed to load. Word conversion is unavailable.");
   } else if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("vendor/pdfjs/pdf.worker.min.js", document.baseURI).href;
   }
   render();
 }

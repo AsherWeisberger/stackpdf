@@ -1002,11 +1002,12 @@ input:focus-visible,
   .count { font-size: 20px; }
 
   .card {
-    grid-template-columns: 32px 40px 1fr auto;
+    grid-template-columns: 44px 40px 1fr auto;
     border-radius: 20px;
     padding: 12px 10px 12px 6px;
     gap: 8px;
   }
+  .handle { width: 44px; height: 48px; }
 
   .page-grid { gap: 10px 8px; }
   .leaf { width: calc(25% - 6px); flex: 0 0 calc(25% - 6px); }
@@ -1103,11 +1104,11 @@ input:focus-visible,
 }
 
 .empty.is-enter-stage .lede {
-  animation: enter-up 700ms var(--ease-out) 400ms backwards;
+  animation: none;
 }
 
 .empty.is-enter-stage .choose {
-  animation: enter-up 760ms var(--ease-spring) 500ms backwards;
+  animation: none;
 }
 
 .work.is-enter-stage {
@@ -1184,10 +1185,8 @@ input:focus-visible,
 
 @keyframes kinetic-settle {
   from {
-    opacity: 0;
     letter-spacing: var(--kinetic-track);
-    font-weight: 800;
-    transform: translateY(22px);
+    transform: translateY(10px);
   }
 }
 
