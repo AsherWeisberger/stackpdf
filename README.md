@@ -2,6 +2,10 @@
 
 Merge, split, and convert PDFs to Word in the browser. Files never leave the tab.
 
+Made by [Asher Weisberger](https://x.com/AsherWeisberger) ([@AsherWeisberger](https://x.com/AsherWeisberger))
+
+Live: https://asherweisberger.github.io/stackpdf/
+
 No account. No daily cap. No upload. Open `index.html` or host the folder on GitHub Pages.
 
 StackPDF is an original tool and is not affiliated with Smallpdf, iLovePDF, or Adobe.
@@ -24,4 +28,4 @@ Password-protected, damaged, and oversized files are refused with a plain-langua
 
 ## License
 
-MIT. Copyright 2026 Asher Weisberger.
+MIT. Copyright 2026 Asher Weisberger ([@AsherWeisberger](https://x.com/AsherWeisberger)).

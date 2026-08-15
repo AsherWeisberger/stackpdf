@@ -122,6 +122,12 @@ input:focus-visible,
   box-shadow: 0 2px 4px rgba(226, 75, 42, 0.35);
 }
 
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
 .name {
   font-family: var(--serif);
   font-optical-sizing: auto;
@@ -129,6 +135,23 @@ input:focus-visible,
   font-weight: 600;
   letter-spacing: -0.03em;
   line-height: 1;
+}
+.credit {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--faint);
+  line-height: 1.3;
+}
+.credit a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.credit a:hover { color: var(--stamp); }
+.empty-credit {
+  margin: 16px 0 0;
+  font-size: 12px;
 }
 
 .privacy-chip {
@@ -974,6 +997,13 @@ input:focus-visible,
   }
 
   .name { font-size: 20px; }
+  .credit { font-size: 11px; font-weight: 500; }
+  .mast .credit .who { display: none; }
+  .empty-credit {
+    margin-top: 18px;
+    font-size: 12px;
+    font-weight: 600;
+  }
 
   .privacy-chip { padding: 6px 10px; font-size: 12px; }
   .privacy-chip span:last-child { max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
