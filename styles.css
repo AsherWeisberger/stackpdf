@@ -925,13 +925,17 @@ input:focus-visible,
 
 /* —— progress / toast —— */
 .progress {
-  position: absolute;
-  inset: 0;
-  background: rgba(237, 228, 212, 0.72);
-  backdrop-filter: blur(8px);
-  display: grid;
-  place-items: center;
-  z-index: 6;
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--dock-h, 168px) + 12px);
+  inset: auto;
+  background: transparent;
+  backdrop-filter: none;
+  display: flex;
+  justify-content: center;
+  z-index: 40;
+  pointer-events: none;
 }
 
 .progress-card {
@@ -1264,4 +1268,99 @@ input:focus-visible,
   }
 
   .card.is-leave { opacity: 0; }
+}
+
+/* ——— thinking orb pill (Jakub Antalik idea, original chrome) ——— */
+.orb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  max-width: min(100%, 360px);
+  padding: 0 14px 0 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.orb-pill.dark {
+  background: rgba(13, 15, 20, 0.88);
+  color: #F0EFEC;
+  box-shadow: inset 0 0 0 1px rgba(87, 88, 96, 0.38);
+}
+.orb-pill.light {
+  background: rgba(240, 239, 236, 0.94);
+  color: #0D0F14;
+  box-shadow: inset 0 0 0 1px rgba(13, 15, 20, 0.12);
+}
+.orb-dot {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+.orb-dot canvas { display: block; width: 20px; height: 20px; }
+.orb-label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.011em;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background-image: linear-gradient(
+    90deg,
+    currentColor 0%,
+    #D9CCAC 42%,
+    currentColor 58%,
+    #8C9297 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: orb-shimmer 2.4s ease-in-out infinite;
+}
+.orb-shimmer {
+  background-image: linear-gradient(90deg, currentColor 0%, #D9CCAC 42%, currentColor 58%, #8C9297 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: orb-shimmer 2.4s ease-in-out infinite;
+}
+@keyframes orb-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -120% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orb-label, .orb-shimmer { animation: none; color: inherit; background: none; -webkit-background-clip: unset; background-clip: unset; }
+}
+@media (max-width: 390px) {
+  .orb-pill { height: 32px; padding: 0 12px 0 6px; gap: 6px; }
+  .orb-label { font-size: 12px; }
+}
+
+
+#progressOrb { display: flex; justify-content: center; }
+
+.orb-pill {
+  backdrop-filter: saturate(1.25) blur(18px);
+  -webkit-backdrop-filter: saturate(1.25) blur(18px);
+}
+.orb-pill.dark { background: rgba(13, 15, 20, 0.72); }
+.orb-pill.light { background: rgba(240, 239, 236, 0.78); }
+.orb-phone-only { display: none; }
+@media (max-width: 720px) {
+  .orb-phone-only { display: inline-flex; }
+  .orb-desk-only { display: none !important; }
+  .orb-dock {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    top: auto;
+    bottom: calc(var(--dock-h, 72px) + env(safe-area-inset-bottom, 0px) + 10px);
+    z-index: 40;
+  }
 }

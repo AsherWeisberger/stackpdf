@@ -287,9 +287,7 @@ function bootUi() {
     pagesSub: document.getElementById("pagesSub"),
     pageGrid: document.getElementById("pageGrid"),
     progress: document.getElementById("progress"),
-    progressLabel: document.getElementById("progressLabel"),
-    progressBar: document.getElementById("progressBar"),
-    progressTrack: document.getElementById("progressTrack"),
+    progressOrb: document.getElementById("progressOrb"),
     fileHint: document.getElementById("fileHint"),
     mergeHint: document.getElementById("mergeHint"),
     splitHint: document.getElementById("splitHint"),
@@ -331,18 +329,31 @@ function bootUi() {
     }
   }
 
+  var orbHandle = null;
+  function orbStateFor(label) {
+    var s = String(label || "").toLowerCase();
+    if (s.indexOf("word") >= 0 || s.indexOf("docx") >= 0) return "composing";
+    if (s.indexOf("merg") >= 0) return "weaving";
+    if (s.indexOf("split") >= 0 || s.indexOf("extract") >= 0) return "solving";
+    if (s.indexOf("read") >= 0) return "searching";
+    return "working";
+  }
   function showProgress(on, label, done, total) {
     els.progress.hidden = !on;
-    if (!on) return;
-    els.progressLabel.textContent = label || "Working";
-    var pct;
-    if (!total || total < 1) pct = 8;
-    else if (done <= 0) pct = 6;
-    else if (done >= total) pct = 100;
-    else pct = Math.max(6, Math.min(96, Math.round((done / total) * 100)));
-    els.progressBar.style.width = pct + "%";
-    els.progressTrack.setAttribute("aria-valuenow", String(pct));
-    els.progressTrack.setAttribute("aria-label", label || "Working");
+    if (!on) {
+      if (orbHandle) { orbHandle.destroy(); orbHandle = null; }
+      return;
+    }
+    var theme = window.KitOrb ? KitOrb.hostTheme() : "light";
+    var state = orbStateFor(label);
+    var text = label || "Working";
+    if (!orbHandle && window.KitOrb) {
+      els.progressOrb.innerHTML = "";
+      orbHandle = KitOrb.mountPill(els.progressOrb, { label: text, state: state, theme: theme });
+    } else if (orbHandle) {
+      orbHandle.setLabel(text);
+      orbHandle.setState(state);
+    }
   }
 
   function downloadBytes(bytes, name, type) {
